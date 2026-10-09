@@ -10,6 +10,8 @@ export function createVM(vmOptions: VMOptions = {}) {
   const vm_navigator = dom.window.navigator
   const vm_document = dom.window.document
   const __wxAppCode__ = {}
+  const glassEaselTemplates: Record<string, any> = {}
+  const glassEaselStaticConfigs: Record<string, any> = {}
   const fakeGlobal = {
     __wxAppCode__,
     publishDomainComponents: () => void 0,
@@ -39,17 +41,35 @@ export function createVM(vmOptions: VMOptions = {}) {
       System: {
         register: () => void 0,
       },
+      setCssToHead: () => void 0,
       __vd_version_info__: {},
       __wxAppCode__,
+      __wxConfig: {},
+      __glassEaselTemplates__: glassEaselTemplates,
+      __glassEaselStaticConfigs__: glassEaselStaticConfigs,
       __wxCodeSpace__: {
         setRuntimeGlobals: () => void 0,
-        addComponentStaticConfig: () => void 0,
+        addComponentStaticConfig: (p: string, cfg: any) => {
+          let jsonPath = p.startsWith('/') ? p.slice(1) : p;
+          glassEaselStaticConfigs[jsonPath] = cfg;
+          if (!jsonPath.endsWith('.json')) jsonPath += '.json';
+          __wxAppCode__[jsonPath] = cfg;
+        },
         setStyleScope: () => void 0,
         enableCodeChunk: () => void 0,
         initializeCodeChunk: () => void 0,
         addTemplateDependencies: () => void 0,
         batchAddCompiledScripts: () => void 0,
-        batchAddCompiledTemplate: () => void 0,
+        batchAddCompiledTemplate: (factory: any) => {
+          try {
+            if (typeof factory === 'function') {
+              const tpls = factory({}, {}, {}, {}, {}, (x: any) => x, (x: any) => x, {}, {});
+              if (tpls && typeof tpls === 'object') {
+                Object.assign(glassEaselTemplates, tpls);
+              }
+            }
+          } catch (e) {}
+        },
       },
     }
   }, vmOptions));

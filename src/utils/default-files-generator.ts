@@ -38,6 +38,9 @@ export class DefaultFilesGeneratorUtils {
               if (isPluginPath(op)) {
                 return op
               }
+              if (op.startsWith('/')) {
+                return op.slice(1)
+              }
               return path.join(pageDirPath, op).split(path.sep).join('/')
             })
           

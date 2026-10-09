@@ -1,3 +1,4 @@
+import { decompileGlassEasel } from "@/utils/decompile-glass-easel";
 import { VM } from 'vm2'
 import fs from "node:fs";
 import colors from "picocolors";
@@ -63,7 +64,8 @@ export class AppDecompilation extends BaseDecompilation {
     }
     console.log(loadInfo)
     const code = this.getRuntimeCode('style') || this.getRuntimeCode('gwx')
-    if (!code) {
+    const hasGlassEasel = glob.globSync(path.join(this.pathInfo.resolve(), '*.webview.js')).length > 0
+    if (!code && !hasGlassEasel) {
       if (this.packType === 'main') {
         console.log(colors.red('\u274C  没有找到包特征文件'))
       }
@@ -246,9 +248,30 @@ export class AppDecompilation extends BaseDecompilation {
       }
     })
     runVmCode(vm, this.codeInfo.appService)
+
+    // 运行包含 addComponentStaticConfig 的文件以收集 glass-easel 组件静态配置
+    const staticCandidates = ['common.app.js', 'appservice.app.js', 'page-frame.js', 'app-wxss.js'];
+    for (const name of staticCandidates) {
+      const filePath = path.join(this.pathInfo.resolve(), name);
+      if (fs.existsSync(filePath)) {
+        const code = readLocalFile(filePath);
+        if (code && code.includes('addComponentStaticConfig')) {
+          runVmCode(vm, code);
+        }
+      }
+    }
+
     // 解析代码中的各个模块  json 配置
     this._injectPluginAppPageJSON(vm, plugins) // 要在解析 __wxAppCode__ 之前将插件的page.json配置注入 __wxAppCode__
     const __wxAppCode__ = Object.assign(vm.sandbox.__wxAppCode__, vm.sandbox.global?.__wxAppCode__ || {});
+
+    // 合并 glass-easel 静态配置
+    const glassConfigs = vm.sandbox.__glassEaselStaticConfigs__ || {};
+    for (const p in glassConfigs) {
+      let jsonPath = p.startsWith('/') ? p.slice(1) : p;
+      if (!jsonPath.endsWith('.json')) jsonPath += '.json';
+      __wxAppCode__[jsonPath] = glassConfigs[p];
+    }
     for (const filePath in __wxAppCode__) {
       if (path.extname(filePath) !== '.json') continue
       let tempFilePath = filePath
@@ -265,7 +288,7 @@ export class AppDecompilation extends BaseDecompilation {
           usingComponents[key] = usingComponents[key].substring(3)
         }
         
-        if (!isPluginPath(usingComponents[key])) {
+        if (!usingComponents[key].startsWith('/') && !isPluginPath(usingComponents[key])) {
           usingComponents[key] = path.relative(dir, path.join(dir, usingComponents[key])).split(path.sep).join('/')
         }
       }
@@ -731,6 +754,51 @@ export class AppDecompilation extends BaseDecompilation {
   }
 
   private async decompileAppWXML() {
+    // 优先检查 glass-easel 模板 (*.webview.js)
+    const webviewFiles = glob.globSync(path.join(this.pathInfo.resolve(), '*.webview.js'));
+    if (webviewFiles.length > 0) {
+      webviewFiles.sort();
+      const vm = createVM();
+      for (const file of webviewFiles) {
+        const code = readLocalFile(file);
+        if (code) {
+          runVmCode(vm, code);
+        }
+      }
+      const templates = vm.sandbox.__glassEaselTemplates__ || {};
+      const templateKeys = Object.keys(templates);
+      if (templateKeys.length > 0) {
+        for (const tplPath of templateKeys) {
+          try {
+            const factory = templates[tplPath];
+            let targetFn = null;
+            if (typeof factory === 'function') {
+              try {
+                const res = factory('');
+                targetFn = typeof res === 'function' ? res : factory;
+              } catch (e) {
+                targetFn = factory;
+              }
+            }
+            const fnCode = targetFn ? targetFn.toString() : '';
+            if (fnCode) {
+              let wxml = decompileGlassEasel(fnCode);
+              let cleanPath = tplPath.startsWith('/') ? tplPath.slice(1) : tplPath;
+              if (cleanPath.endsWith('.wxml')) cleanPath = cleanPath.slice(0, -5);
+              const wxmlFullPath = this.pathInfo.outputResolve(cleanPath + '.wxml');
+              saveLocalFile(wxmlFullPath, wxml, { force: true });
+              printLog(` Completed  (${wxml.length}) \t${colors.bold(colors.gray(cleanPath + '.wxml'))}`);
+            }
+          } catch (e) {
+            console.error(`反编译 glass-easel 模板失败: ${tplPath}`, e.message);
+          }
+        }
+        await sleep(200);
+        printLog(` \u25B6 反编译所有 wxml 文件成功. \n`, { isStart: true });
+        return;
+      }
+    }
+
     let code = this.getRuntimeCode('gwx')
     if (!code) return
     const { ALL_DEFINES, ALL_ENTRYS } = this.executeAllGwxFunction(code)
