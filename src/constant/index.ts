@@ -26,6 +26,8 @@ export const removeAppFileList = [
   'page-frame.js',
   'webview.app.js',
   'common.app.js',
+  'app.fpcssb',
+  'app.fpiib',
   // 'plugin.json',
 ]
 

@@ -19,7 +19,7 @@ export class FileCleanerUtils {
     await sleep(500);
     let cont = 0;
     const removeFileList = removeGameFileList.concat(removeAppFileList);
-    const allFile = glob.globSync(`${outputPath}/**/**{.js,.html,.json}`);
+    const allFile = glob.globSync(`${outputPath}/**/**{.js,.html,.json,.fpcssb,.fpiib}`);
     
     allFile.forEach(filepath => {
       const fileName = path.basename(filepath).trim();
@@ -31,12 +31,11 @@ export class FileCleanerUtils {
         deleteLocalFile(filepath, { catch: true, force: true });
       };
       
-      if (removeFileList.includes(fileName)) {
+      if (removeFileList.includes(fileName) || extname === '.fpcssb' || extname === '.fpiib') {
         _deleteLocalFile();
       } else if (extname === '.html') {
-        const feature = 'var __setCssStartTime__ = Date.now()';
         const data = readLocalFile(filepath);
-        if (data.includes(feature)) _deleteLocalFile();
+        if (data.includes('__setCssStartTime__')) _deleteLocalFile();
       } else if (filepath.endsWith('.appservice.js')) {
         _deleteLocalFile();
       } else if (filepath.endsWith('.webview.js')) {
